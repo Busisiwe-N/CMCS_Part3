@@ -1,0 +1,40 @@
+﻿using CMCS_Part3.Models;
+using Microsoft.AspNetCore.Identity;
+namespace CMCS_Part3.Data;
+
+    
+
+
+public static class DbSeeder
+{
+    public static async Task SeedAsync(IServiceProvider service)
+    {
+        var roleMgr = service.GetRequiredService<RoleManager<IdentityRole>>();
+        var userMgr = service.GetRequiredService<UserManager<ApplicationUser>>();
+
+        string[] roles = { "Lecturer", "Coordinator", "AcademicManager", "HR" };
+        foreach (var role in roles)
+            if (!await roleMgr.RoleExistsAsync(role))
+                await roleMgr.CreateAsync(new IdentityRole(role));
+
+        async Task Create(string username, string role)
+        {
+            if (await userMgr.FindByNameAsync(username) != null) return;
+
+            var user = new ApplicationUser
+            {
+                UserName = username,
+                Email = $"{username}@test.com",
+                EmailConfirmed = true
+            };
+
+            await userMgr.CreateAsync(user, "Password123!");
+            await userMgr.AddToRoleAsync(user, role);
+        }
+
+        await Create("lect1", "Lecturer");
+        await Create("coord1", "Coordinator");
+        await Create("manager1", "AcademicManager");
+        await Create("hr1", "HR");
+    }
+}
