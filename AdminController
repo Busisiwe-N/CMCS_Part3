@@ -1,0 +1,30 @@
+using CMCS_Part3.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CMCS.Part3.Controllers
+{
+    [Authorize(Roles = "HR")]
+    public class AdminController : Controller
+    {
+        private readonly ReportService _report;
+        public AdminController(ReportService report) { _report = report; }
+
+        public IActionResult Index() => View();
+
+        [HttpGet]
+        public async Task<IActionResult> ExportCsv(int year, int month)
+        {
+            var bytes = await _report.GenerateCsvApprovedAsync(new DateTime(year, month, 1));
+            return File(bytes, "text/csv", $"approved_claims_{year}_{month}.csv");
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> InvoicePdf(int lecturerProfileId, int year, int month)
+        {
+            var pdf = await _report.GeneratePdfInvoiceAsync(lecturerProfileId, new DateTime(year, month, 1));
+            if (pdf == null) return NotFound();
+            return File(pdf, "application/pdf", $"invoice_{lecturerProfileId}_{year}_{month}.pdf");
+        }
+    }
+}
