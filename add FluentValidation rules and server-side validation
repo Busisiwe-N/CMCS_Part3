@@ -1,0 +1,19 @@
+using CMCS_Part3.ViewModels;
+using FluentValidation;
+
+namespace CMCS_Part3.Validators
+{
+    public class ClaimCreateValidator : AbstractValidator<ClaimCreateViewModel>
+    {
+    
+
+        public ClaimCreateValidator()
+        {
+            RuleFor(x => x.ClaimMonth).NotEmpty();
+            RuleFor(x => x.HoursWorked).GreaterThan(0).LessThanOrEqualTo(300);
+            RuleFor(x => x.HourlyRate).GreaterThan(0).LessThanOrEqualTo(10000);
+            RuleFor(x => x.Files).Must(files => files == null || files.All(f => f.Length <= 5 * 1024 * 1024))
+                .WithMessage("Each file must be 5MB or smaller.");
+        }
+    }
+}
