@@ -1,0 +1,137 @@
+using CMCS_Part3.Data;
+using CMCS_Part3.Models;
+using CMCS_Part3.Services;
+using CMCS_Part3.ViewModels;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace CMCS_Part3.Controllers
+{
+    [Authorize]
+    public class ClaimsController : Controller
+    {
+        private readonly ApplicationDbContext _db;
+        private readonly ClaimService _claimSvc;
+        private readonly UserManager<ApplicationUser> _um;
+        private readonly IWebHostEnvironment _env;
+
+
+        public ClaimsController(ApplicationDbContext db, ClaimService cs, UserManager<ApplicationUser> um, IWebHostEnvironment env)
+        {
+            _db = db; _claimSvc = cs; _um = um; _env = env;
+        }
+
+        [Authorize(Roles = "Lecturer")]
+        public IActionResult Create() => View(new ClaimCreateViewModel { ClaimMonth = DateTime.Today });
+
+        [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "Lecturer")]
+        public async Task<IActionResult> Create(ClaimCreateViewModel vm)
+        {
+            if (!ModelState.IsValid) return View(vm);
+
+            var user = await _um.GetUserAsync(User);
+            var lecturer = await _db.LecturerProfiles.FirstOrDefaultAsync(l => l.UserId == user.Id);
+            if (lecturer == null)
+            {
+                lecturer = new LecturerProfile { UserId = user.Id, FirstName = user.UserName };
+                _db.LecturerProfiles.Add(lecturer);
+                await _db.SaveChangesAsync();
+            }
+
+            var month = new DateTime(vm.ClaimMonth.Year, vm.ClaimMonth.Month, 1);
+            if (await _db.Claims.AnyAsync(c => c.LecturerProfileId == lecturer.LecturerProfileId && c.ClaimMonth == month))
+            {
+                ModelState.AddModelError("", "A claim for this month already exists.");
+                return View(vm);
+            }
+
+            var claim = new Claim
+            {
+                LecturerProfileId = lecturer.LecturerProfileId,
+                ClaimMonth = month,
+                HoursWorked = vm.HoursWorked,
+                HourlyRate = vm.HourlyRate,
+                Notes = vm.Notes
+            };
+
+            // file handling
+            if (vm.Files != null && vm.Files.Any())
+            {
+                var uploads = Path.Combine(_env.WebRootPath, "uploads");
+                Directory.CreateDirectory(uploads);
+                foreach (var f in vm.Files)
+                {
+                    if (f.Length > 5 * 1024 * 1024) { ModelState.AddModelError("", "File too large"); return View(vm); }
+                    var ext = Path.GetExtension(f.FileName).ToLowerInvariant();
+                    if (!new[] { ".pdf", ".docx", ".xlsx" }.Contains(ext)) { ModelState.AddModelError("", "Invalid file type"); return View(vm); }
+                    var name = $"{Guid.NewGuid()}{ext}";
+                    var path = Path.Combine(uploads, name);
+                    using var fs = new FileStream(path, FileMode.Create);
+                    await f.CopyToAsync(fs);
+                    claim.Documents ??= new List<ClaimDocument>();
+                    claim.Documents.Add(new ClaimDocument { FileName = f.FileName, FilePath = $"/uploads/{name}", ContentType = f.ContentType, SizeBytes = f.Length });
+                }
+            }
+
+            claim.Status = _claimSvc.IsFlagged(claim) ? "Pending" : "Verified";
+
+            await _claimSvc.CreateAsync(claim);
+            return RedirectToAction(nameof(Details), new { id = claim.ClaimId });
+        }
+
+        [Authorize(Roles = "Lecturer,Coordinator,AcademicManager,HR")]
+        public async Task<IActionResult> Details(int id)
+        {
+            var c = await _db.Claims.Include(x => x.Lecturer).ThenInclude(l => l.User).Include(x => x.Documents).Include(x => x.ClaimAudits).FirstOrDefaultAsync(x => x.ClaimId == id);
+            if (c == null) return NotFound();
+            return View(c);
+        }
+
+        [Authorize(Roles = "Coordinator,AcademicManager")]
+        public async Task<IActionResult> Pending()
+        {
+            var list = await _claimSvc.GetPendingAsync();
+            return View(list);
+        }
+
+        [HttpPost, Authorize(Roles = "Coordinator,AcademicManager")]
+        public async Task<IActionResult> Review(int id, string action, string comment)
+        {
+            var reviewer = await _um.GetUserAsync(User);
+            if (action == "Approve")
+            {
+                var roles = await _um.GetRolesAsync(reviewer);
+                if (roles.Contains("Coordinator"))
+                {
+                    // Coordinator verifies -> set Verified
+                    var c = await _db.Claims.FindAsync(id);
+                    var old = c.Status;
+                    c.Status = "Verified";
+                    _db.ClaimAudits.Add(new ClaimAudit { ClaimId = id, OldStatus = old, NewStatus = c.Status, ChangedByUserId = reviewer.Id, Comment = comment });
+                    await _db.SaveChangesAsync();
+                }
+                else if (roles.Contains("AcademicManager"))
+                {
+                    await _claimSvc.ApproveAsync(id, reviewer.Id, comment);
+                }
+            }
+            else if (action == "Reject")
+            {
+                await _claimSvc.RejectAsync(id, reviewer.Id, comment);
+            }
+            return RedirectToAction(nameof(Pending));
+        }
+
+        [Authorize(Roles = "Lecturer")]
+        public async Task<IActionResult> MyClaims()
+        {
+            var user = await _um.GetUserAsync(User);
+            var lec = await _db.LecturerProfiles.FirstOrDefaultAsync(l => l.UserId == user.Id);
+            if (lec == null) return View(new List<Claim>());
+            var list = await _db.Claims.Where(c => c.LecturerProfileId == lec.LecturerProfileId).ToListAsync();
+            return View(list);
+        }
+    }
+}
