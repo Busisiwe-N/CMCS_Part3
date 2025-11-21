@@ -1,0 +1,70 @@
+sing CMCS_Part3.Data;
+using CMCS_Part3.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace CMCS_Part3.Services
+{
+    public class ClaimService
+    { 
+
+    private readonly ApplicationDbContext _db;
+
+    public ClaimService(ApplicationDbContext db) => _db = db;
+
+    public async Task<List<Claim>> GetAllClaimsAsync() => await _db.Claims.ToListAsync();
+    public async Task<List<Claim>> GetClaimsByLecturerAsync(string lecturerId) =>
+        await _db.Claims.Where(c => c.LecturerId == lecturerId).ToListAsync();
+
+    public async Task SubmitClaimAsync(Claim claim)
+    {
+        _db.Claims.Add(claim);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task ApproveClaimAsync(int claimId, string user)
+    {
+        var claim = await _db.Claims.FindAsync(claimId);
+        if (claim != null) claim.Status = "Approved";
+        _db.ClaimAudits.Add(new ClaimAudit { ClaimId = claimId, ActionBy = user, ActionType = "Approved" });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RejectClaimAsync(int claimId, string user)
+    {
+        var claim = await _db.Claims.FindAsync(claimId);
+        if (claim != null) claim.Status = "Rejected";
+        _db.ClaimAudits.Add(new ClaimAudit { ClaimId = claimId, ActionBy = user, ActionType = "Rejected" });
+        await _db.SaveChangesAsync();
+    }
+
+        internal object CalculateTotal(decimal v1, decimal v2)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal async Task<string?> GetPendingAsync()
+        {
+            throw new NotImplementedException();
+        }
+
+        internal async Task CreateAsync(Claim claim)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal bool IsFlagged(Claim claim)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal async Task RejectAsync(int id1, string id2, string comment)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal async Task ApproveAsync(int id1, string id2, string comment)
+        {
+            throw new NotImplementedException();
+        }
+    }
+}
